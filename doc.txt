@@ -1,0 +1,75 @@
+﻿Техническое задание (Design Doc): Minimalist URnetwork Android Client V2
+Настоящий документ определяет архитектурные требования, структуру компонентов и пошаговый план разработки минималистичного Android-клиента для взаимодействия с сетью URnetwork на базе готовой библиотеки URnetworkSdk.aar. Документ служит техническим регламентом для автономного ИИ-агента (Google Jules).
+1. Общие сведения и принципы
+* Принцип KISS (Keep It Simple, Stupid): Фокус исключительно на выполнении базовой задачи — подключение к децентрализованной сети URnetwork с минимально достаточным интерфейсом.
+* Тонкий клиент (Thin Client): Вся криптографическая и сетевая логика выполняется предсобранным Go-ядром, упакованным в AAR. Слой Android отвечает исключительно за системный VpnService и UI.
+* Отчуждаемость и устойчивость: Независимость от обновлений кодовой базы официального клиента. Обновление сетевого стека сводится к замене AAR-архива.
+2. Получение и размещение зависимостей
+Поскольку исходный модуль URnetworkSdk.aar превышает лимиты прямого пуша через браузер, он размещен в GitHub Releases репозитория проекта в релизе deps.
+Для автоматической или ручной подготовки окружения агент должен загрузить артефакт в локальный каталог проекта:
+# Размещение артефакта в структуре проекта
+mkdir -p app/libs
+# Загрузка артефакта URnetworkSdk.aar из релиза deps текущего репозитория в папку app/libs/
+
+3. Архитектура приложения
+Система разбита на 4 изолированных слоя для прозрачной сборки и тестирования:
+Слой
+	Технологический стек
+	Назначение
+
+	UI (User Interface)
+	Jetpack Compose, Material 3
+	Два компактных экрана (Auth & Main) с реактивным обновлением состояния.
+	State Management
+	ViewModel, StateFlow
+	Хранение состояния соединения, сессии и передача событий от UI к VpnService.
+	Service Layer
+	Android VpnService, ForegroundService
+	Создание виртуального TUN-интерфейса ОС Android, удержание процесса в памяти и уведомления.
+	Core SDK Wrapper
+	URnetworkSdk.aar (Go/gomobile)
+	Аутентификация, маршрутизация пакетов, установление туннелей в сети URnetwork.
+	4. Требования к интерфейсу (UI / UX)
+4.1. Экран регистрации / авторизации (Auth Screen)
+Отображается в случае отсутствия локально сохраненных учетных данных.
+* Кнопка "Создать Community аккаунт": триггерит генерацию анонимного профиля в сети URnetwork через методы SDK.
+* Сохранение полученных идентификаторов/ключей в зашифрованное локальное хранилище (EncryptedSharedPreferences или DataStore).
+* Автоматический переход на главный экран после успешной инициализации.
+4.2. Главный экран управления (Main VPN Screen)
+Отображается после успешной авторизации.
+* Статус подключения: Текстовый лейбл с цветовым акцентом (Disconnected, Connecting, Connected).
+* Кнопка переключения: Основной элемент управления для запуска и остановки сессии.
+* Дополнительные элементы: Кнопка сброса сессии (Logout) для возврата к экрану создания аккаунта.
+5. Системная спецификация Android
+5.1. Манифест и разрешения (AndroidManifest.xml)
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+<service
+   android:name=".service.UrVpnService"
+   android:permission="android.permission.BIND_VPN_SERVICE"
+   android:foregroundServiceType="connectedDevice"
+   android:exported="false">
+   <intent-filter>
+       <action android:name="android.net.VpnService" />
+   </intent-filter>
+</service>
+
+6. Пошаговый план реализации для Google Jules
+1. Этап 1: Инициализация проекта и подключение AAR. Убедиться в наличии app/libs/URnetworkSdk.aar, настроить build.gradle.kts, настроить базовые манифесты и разрешения. Проверить успешность сборки ./gradlew assembleDebug.
+2. Этап 2: Создание SDK-фасада (UrSdkWrapper). Реализовать обертку над классами URnetworkSdk для регистрации community-профиля, старта сервиса и остановки.
+3. Этап 3: Реализация VpnService. Создать сервис, обрабатывающий системный Intent, создающий TUN-интерфейс (через VpnService.Builder) и передающий файловый дескриптор в сетевое ядро SDK.
+4. Этап 4: Реализация Compose UI и ViewModel. Сверстать Auth Screen и Main Screen, настроить реактивный обмен событиями с сервисом через StateFlow.
+7. Конфигурация Gradle
+dependencies {
+   implementation(files("libs/URnetworkSdk.aar"))
+
+   implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+   implementation("androidx.compose.ui:ui")
+   implementation("androidx.compose.material3:material3")
+   implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
+   implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.3")
+}
